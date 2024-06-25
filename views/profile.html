@@ -6,13 +6,12 @@
 
 {{define "body"}}
 
-
 <div class="card">
   <div class="card-header d-flex p-0">
     <ul class="nav nav-pills ml-left p-2">
       <li class="nav-item"><a class="nav-link active" href="#tab_1" data-toggle="tab">Edit own Profile</a></li>
-      {{ if .Userinfo.IsAdmin }} <li class="nav-item"><a class="nav-link" href="#tab_2" data-toggle="tab">Creating new Profiles</a></li> {{ else }}{{ end }}
-      {{ if .Userinfo.IsAdmin }} <li class="nav-item"><a class="nav-link" href="#tab_3" data-toggle="tab">Managing Profiles</a></li> {{ else }}{{ end }}
+      {{ if .Userinfo.IsAdmin }} <li class="nav-item"><a class="nav-link" href="#tab_2" data-toggle="tab">Creating new Profiles</a></li> {{ end }}
+      {{ if .Userinfo.IsAdmin }} <li class="nav-item"><a class="nav-link" href="#tab_3" data-toggle="tab">Managing Profiles</a></li> {{ end }}
     </ul>
   </div>
   <div class="card-body">
@@ -20,7 +19,7 @@
 
       <!--TAB1-->
       <div class="tab-pane active" id="tab_1">
-        <h3>Editing {{ .Userinfo.Name }}'s profile</h3>{{ if .Userinfo.IsAdmin }}<span class="text-muted"> You are administrator. Wow!</span> {{ else }}{{ end }}
+        <h3>Editing {{ .Userinfo.Name }}'s profile</h3>{{ if .Userinfo.IsAdmin }}<span class="text-muted"> You are administrator. Wow!</span> {{ end }}
         {{template "common/alert.html" .}}
         <form id="ProfileEdit" role="form" action="{{urlfor "ProfileController.Post"}}" method="post">
           <div class="card-body">
@@ -79,6 +78,28 @@
               </div>
             </div>
 
+            <div class="form-group {{if field_error_exist .validation "PIN" }}has-error{{end}}">
+              <label class="col-form-label" for="pin">PIN</label>
+              <div class="input-group mb-3">
+                <div class="input-group-prepend">
+                  <span class="input-group-text"><i class="fas fa-key"></i></span>
+                </div>
+                <input type="password" class="form-control" id="pin" name="PIN" placeholder="Enter PIN">
+                <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "PIN" }}</span>
+              </div>
+            </div>
+
+            <div class="form-group {{if field_error_exist .validation "RePIN" }}has-error{{end}}">
+              <label class="col-form-label" for="repin">Re-enter PIN</label>
+              <div class="input-group mb-3">
+                <div class="input-group-prepend">
+                  <span class="input-group-text"><i class="fas fa-key"></i></span>
+                </div>
+                <input type="password" class="form-control" id="repin" name="RePIN" placeholder="Re-enter PIN">
+                <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "RePIN" }}</span>
+              </div>
+            </div>
+
             {{ .xsrfdata }}
           </div>
 
@@ -87,7 +108,6 @@
           </div>
         </form>
       </div>
-      
 
       <!--TAB2-->
       <div class="tab-pane" id="tab_2">
@@ -135,15 +155,16 @@
             </div>
 
             <div class="form-group {{if field_error_exist .validation "NewPassword" }}has-error{{end}}">
-              <label class="col-form-label" for="newpassword">Repeat password</label>
+              <label class="col-form-label" for="newpassword">Password</label>
               <div class="input-group mb-3">
                 <div class="input-group-prepend">
                   <span class="input-group-text"><i class="fas fa-lock"></i></span>
                 </div>
-                <input type="password" class="form-control" id="newpassword" name="NewPassword" placeholder="Repeat password">
+                <input type="password" class="form-control" id="newpassword" name="NewPassword" placeholder="Enter password">
                 <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "NewPassword" }}</span>
               </div>
             </div>
+
             <div class="form-group {{if field_error_exist .validation "NewRepassword" }}has-error{{end}}">
               <label class="col-form-label" for="newrepassword">Repeat password</label>
               <div class="input-group mb-3">
@@ -154,6 +175,28 @@
                 <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "NewRepassword" }}</span>
               </div>
             </div>
+
+            <div class="form-group {{if field_error_exist .validation "NewPIN" }}has-error{{end}}">
+              <label class="col-form-label" for="newpin">PIN</label>
+              <div class="input-group mb-3">
+                <div class="input-group-prepend">
+                  <span class="input-group-text"><i class="fas fa-key"></i></span>
+                </div>
+                <input type="password" class="form-control" id="newpin" name="NewPIN" placeholder="Enter PIN">
+                <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "NewPIN" }}</span>
+              </div>
+            </div>
+
+            <div class="form-group {{if field_error_exist .validation "NewRePIN" }}has-error{{end}}">
+              <label class="col-form-label" for="newrepin">Re-enter PIN</label>
+              <div class="input-group mb-3">
+                <div class="input-group-prepend">
+                  <span class="input-group-text"><i class="fas fa-key"></i></span>
+                </div>
+                <input type="password" class="form-control" id="newrepin" name="NewRePIN" placeholder="Re-enter PIN">
+                <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "NewRePIN" }}</span>
+              </div>
+            </div>
           </div>
 
           <div class="modal-footer justify-content-between">
@@ -162,7 +205,6 @@
 
         </form>
       </div>
- 
 
       <!--TAB3-->
       <div class="tab-pane" id="tab_3">
@@ -204,14 +246,14 @@
                       {{ if eq .Id 1 }}
                         {{ .Name }}
                       {{else}}
-                        <input type="text" name="name" value="{{ .Name }}" size="10" required>
+                        <input type="text" name="name" value="{{ .Name }}" size="10">
                       {{end}}
                     </td>
                     <td>
                       {{ if eq .Id 1 }}
                         {{ .Email }}
                       {{else}}
-                        <input type="email" name="email" value="{{ .Email }}" size="17" required>
+                        <input type="email" name="email" value="{{ .Email }}" size="17">
                       {{end}}
                     </td>
                     <td>

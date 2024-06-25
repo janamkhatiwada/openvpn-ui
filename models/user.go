@@ -1,13 +1,11 @@
 package models
 
 import (
+	"errors"
 	"time"
 
 	"github.com/beego/beego/v2/client/orm"
 	"github.com/beego/beego/v2/core/validation"
-
-	//Sqlite driver
-	_ "github.com/mattn/go-sqlite3"
 )
 
 type User struct {
@@ -18,9 +16,11 @@ type User struct {
 	Email         string    `orm:"size(64);unique" form:"Email" valid:"Required;Email"`
 	Password      string    `orm:"size(32)" form:"Password" valid:"Required;MinSize(6)"`
 	Repassword    string    `orm:"-" form:"Repassword" valid:"Required"`
+	PIN           string    `orm:"size(30)" form:"PIN" valid:"Required;MinSize(4);MaxSize(30)"` // Added PIN field
 	Lastlogintime time.Time `orm:"type(datetime);null" form:"-"`
 	Created       time.Time `orm:"auto_now_add;type(datetime)"`
 	Updated       time.Time `orm:"auto_now;type(datetime)"`
+	Allowed       bool      `orm:"default(false)" form:"Allowed" valid:"Required;"`
 }
 
 func (u *User) Valid(v *validation.Validation) {
@@ -58,4 +58,17 @@ func (u *User) Delete() error {
 		return err
 	}
 	return nil
+}
+
+// GetUserByEmail retrieves a user by their email address
+func GetUserByEmail(email string) (*User, error) {
+	user := &User{Email: email}
+	err := user.Read("Email")
+	if err != nil {
+		if err == orm.ErrNoRows {
+			return nil, errors.New("user not found")
+		}
+		return nil, err
+	}
+	return user, nil
 }

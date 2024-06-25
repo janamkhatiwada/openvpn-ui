@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"html/template"
+	"net/http"
 
 	passlib "gopkg.in/hlandau/passlib.v1"
 
@@ -20,6 +21,8 @@ type NewUser struct {
 	NewEmail      string `orm:"size(64)" form:"NewEmail" valid:"Required;Email"`
 	NewPassword   string `orm:"size(32)" form:"NewPassword" valid:"Required;MinSize(6)"`
 	NewRepassword string `orm:"-" form:"NewRepassword" valid:"Required"`
+	NewPIN        string `orm:"size(30)" form:"NewPIN" valid:"Required;MinSize(4);MaxSize(30)"`
+	NewRePIN      string `orm:"size(30)" form:"NewRePIN" valid:"Required;MinSize(4);MaxSize(30)"`
 }
 
 type ProfileController struct {
@@ -37,6 +40,10 @@ func (c *ProfileController) NestPrepare() {
 }
 
 func (c *ProfileController) Get() {
+	if c.Userinfo == nil {
+		c.Redirect(c.LoginPath(), http.StatusFound)
+		return
+	}
 	c.Data["xsrfdata"] = template.HTML(c.XSRFFormHTML())
 	c.Data["profile"] = c.Userinfo
 	c.TplName = "profile.html"
@@ -49,7 +56,6 @@ func (c *ProfileController) Get() {
 			logs.Error("Failed to retrieve user profiles:", err)
 			return
 		}
-		//logs.Info("Retrieved", len(users), "user profiles")
 		c.Data["users"] = users
 	}
 }
@@ -76,24 +82,51 @@ func (c *ProfileController) Post() {
 		return
 	}
 
-	hash, err := passlib.Hash(user.Password)
-	if err != nil {
-		flash.Error("Unable to hash password")
+	fieldsToUpdate := []string{}
+	if user.Password != "" && user.Password == c.GetString("Repassword") {
+		hash, err := passlib.Hash(user.Password)
+		if err != nil {
+			flash.Error("Unable to hash password")
+			flash.Store(&c.Controller)
+			return
+		}
+		c.Userinfo.Password = hash
+		fieldsToUpdate = append(fieldsToUpdate, "Password")
+	}
+
+	if user.PIN != "" && user.PIN == c.GetString("RePIN") {
+		c.Userinfo.PIN = user.PIN
+		fieldsToUpdate = append(fieldsToUpdate, "PIN")
+	} else if user.PIN != "" {
+		flash.Error("PINs do not match")
 		flash.Store(&c.Controller)
 		return
 	}
-	c.Userinfo.Email = user.Email
-	c.Userinfo.Name = user.Name
-	c.Userinfo.Password = hash
-	o := orm.NewOrm()
-	if _, err := o.Update(c.Userinfo); err != nil {
-		flash.Error(err.Error())
+
+	if user.Email != "" && user.Email != c.Userinfo.Email {
+		c.Userinfo.Email = user.Email
+		fieldsToUpdate = append(fieldsToUpdate, "Email")
+	}
+
+	if user.Name != "" && user.Name != c.Userinfo.Name {
+		c.Userinfo.Name = user.Name
+		fieldsToUpdate = append(fieldsToUpdate, "Name")
+	}
+
+	if len(fieldsToUpdate) > 0 {
+		o := orm.NewOrm()
+		if _, err := o.Update(c.Userinfo, fieldsToUpdate...); err != nil {
+			flash.Error(err.Error())
+		} else {
+			flash.Success("Profile has been updated!")
+		}
 	} else {
-		flash.Success("Profile has been updated!")
+		flash.Success("No changes made to the profile.")
 	}
 	flash.Store(&c.Controller)
 	c.List()
 }
+
 
 func validateUser(user models.User) map[string]map[string]string {
 	valid := validation.Validation{}
@@ -133,6 +166,7 @@ func (c *ProfileController) Create() {
 		Password:   c.GetString("NewPassword"),
 		Repassword: c.GetString("NewRepassword"),
 		IsAdmin:    c.GetString("NewIsAdmin") == "on",
+		PIN:        c.GetString("NewPIN"),
 	}
 
 	uParams := NewUser{
@@ -142,6 +176,8 @@ func (c *ProfileController) Create() {
 		NewPassword:   c.GetString("NewPassword"),
 		NewRepassword: c.GetString("NewRepassword"),
 		NewIsAdmin:    c.GetString("NewIsAdmin") == "on",
+		NewPIN:        c.GetString("NewPIN"),
+		NewRePIN:      c.GetString("NewRePIN"),
 	}
 
 	if err := c.ParseForm(&user); err != nil {
@@ -155,11 +191,18 @@ func (c *ProfileController) Create() {
 		return
 	}
 
+	if user.PIN != uParams.NewRePIN {
+		flash.Warning("PINs do not match")
+		flash.Store(&c.Controller)
+		c.List()
+		return
+	}
+
 	o := orm.NewOrm()
 	var existingUser models.User
 	err := o.QueryTable("user").Filter("Login", user.Login).One(&existingUser)
 	if err == nil {
-		flash.Warning("User with login \"" + user.Login + "\" is already exists!")
+		flash.Warning("User with login \"" + user.Login + "\" already exists!")
 		flash.Store(&c.Controller)
 		logs.Info("User already exists:", user.Login)
 		c.List()
@@ -184,6 +227,7 @@ func (c *ProfileController) Create() {
 		Name:     user.Name,
 		Email:    user.Email,
 		Password: user.Password,
+		PIN:      user.PIN,
 	}
 	hash, err := passlib.Hash(newUser.Password)
 	if err != nil {
@@ -191,7 +235,7 @@ func (c *ProfileController) Create() {
 		return
 	}
 	newUser.Password = hash
-	if created, _, err := o.ReadOrCreate(&newUser, "Name"); err == nil {
+	if created, _, err := o.ReadOrCreate(&newUser, "Login"); err == nil {
 		if created {
 			logs.Info("New user with login \"" + user.Login + "\" created successfully.")
 			flash.Success("New user with login \"" + user.Login + "\" created successfully.")
@@ -215,7 +259,6 @@ func (c *ProfileController) List() {
 		logs.Error("Failed to retrieve user profiles:", err)
 		return
 	}
-	//logs.Info("Retrieved", len(users), "user profiles")
 	c.Data["users"] = users
 	c.TplName = "profile.html"
 }
@@ -233,7 +276,6 @@ func (c *ProfileController) DeleteUser() {
 	o := orm.NewOrm()
 	user := models.User{Id: int64(id)}
 
-	// Read the user first to populate the Login field before deleting it from the database
 	err = o.Read(&user)
 	if err != nil {
 		logs.Error("Failed to get user:", err)
@@ -241,13 +283,13 @@ func (c *ProfileController) DeleteUser() {
 	}
 
 	if _, err := o.Delete(&user); err != nil {
-		logs.Error("Failed to delete user \""+user.Login+"\" profile:", err)
+		logs.Error("Failed to delete user \"" + user.Login + "\" profile:", err)
 		flash.Error("Failed to delete user \"" + user.Login + "\" profile")
 		return
 	}
 
-	logs.Info("New user with login \""+user.Login+"\" deleted successfully. It had user ID: ", id)
-	flash.Success("User  \"" + user.Login + "\" deleted successfully.")
+	logs.Info("User with login \"" + user.Login + "\" deleted successfully. It had user ID: ", id)
+	flash.Success("User \"" + user.Login + "\" deleted successfully.")
 	flash.Store(&c.Controller)
 	c.List()
 }
@@ -270,18 +312,23 @@ func (c *ProfileController) EditUser() {
 		return
 	}
 
-	// Updating form "username" and "email" fields
 	username := c.GetString("name")
 	email := c.GetString("email")
-
-	user.Name = username
-	user.Email = email
+	pin := c.GetString("pin")
+	repin := c.GetString("RePIN")
 
 	if username != "" {
 		user.Name = username
 	}
 	if email != "" {
 		user.Email = email
+	}
+	if pin != "" && pin == repin {
+		user.PIN = pin
+	} else if pin != "" {
+		flash.Error("PINs do not match")
+		flash.Store(&c.Controller)
+		return
 	}
 
 	if _, err := o.Update(&user); err != nil {

@@ -4,37 +4,36 @@
     <a href="{{urlfor "MainController.Get"}}" class="nav-link">Home <span class="sr-only">(current)</span></a>
   </li>
 
+  {{ if .Userinfo }}
+    {{ if .Userinfo.IsAdmin }}
+      <li class="dropdown">
+        <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown">
+          Configuration </a>
 
-{{ if .Userinfo.IsAdmin }}
-  <li class="dropdown">
-    <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown">
-      Configuration </a>
+        <ul class="dropdown-menu" role="menu">
+          <li {{if compare .RouterPattern "/settings"}}class="dropdown-item"{{end}}>
+            <a href="{{urlfor "SettingsController.Get"}}" class="dropdown-item">OpenVPN UI</a>
+          </li>
 
-    <ul class="dropdown-menu" role="menu">
-      <li {{if compare .RouterPattern "/settings"}}class="dropdown-item"{{end}}>
-        <a href="{{urlfor "SettingsController.Get"}}" class="dropdown-item">OpenVPN UI</a>
+          <li {{if compare .RouterPattern "/ov/config"}}class="dropdown-item"{{end}}>
+            <a href="{{urlfor "OVConfigController.Get"}}" class="dropdown-item">OpenVPN Server</a>
+          </li>
+
+          <li {{if compare .RouterPattern "/ov/clientconfig"}}class="dropdown-item"{{end}}>
+            <a href="{{urlfor "OVClientConfigController.Get"}}" class="dropdown-item">OpenVPN Client</a>
+          </li>
+
+          <li {{if compare .RouterPattern "/easyrsa/config"}}class="dropdown-item"{{end}}>
+            <a href="{{urlfor "EasyRSAConfigController.Get"}}" class="dropdown-item">EasyRSA vars</a>
+          </li>
+
+          <li {{if compare .RouterPattern "/dangerzone"}}class="dropdown-item"{{end}}>
+            <a href="{{urlfor "DangerController.Get"}}" class="dropdown-item">Maintenance</a>
+          </li>
+        </ul>
       </li>
-
-      <li {{if compare .RouterPattern "/ov/config"}}class="dropdown-item"{{end}}>
-        <a href="{{urlfor "OVConfigController.Get"}}" class="dropdown-item">OpenVPN Server</a>
-      </li>
-
-      <li {{if compare .RouterPattern "/ov/clientconfig"}}class="dropdown-item"{{end}}>
-        <a href="{{urlfor "OVClientConfigController.Get"}}" class="dropdown-item">OpenVPN Client</a>
-      </li>
-
-      <li {{if compare .RouterPattern "/easyrsa/config"}}class="dropdown-item"{{end}}>
-        <a href="{{urlfor "EasyRSAConfigController.Get"}}" class="dropdown-item">EasyRSA vars</a>
-      </li>
-
-      <li {{if compare .RouterPattern "/dangerzone"}}class="dropdown-item"{{end}}>
-        <a href="{{urlfor "DangerController.Get"}}" class="dropdown-item">Maintenance</a>
-      </li>
-    </ul>
-  </li>
-  {{ else }}
+    {{ end }}
   {{ end }}
-
 
   <li {{if compare .RouterPattern "/certificates"}}class="nav-item"{{end}}>
     <a href="{{urlfor "CertificatesController.Get"}}" class="nav-link">Certificates</a>
