@@ -72,13 +72,13 @@ func (c *CertificatesController) Download() {
 	cert, err := models.GetCertificateByName(name)
 	if err != nil {
 		c.Ctx.Output.SetStatus(404)
-		c.Ctx.WriteString("Certificate not found")
+		c.Redirect("/certificates?error=Certificate not found", 302)
 		return
 	}
 
 	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
 		c.Ctx.Output.SetStatus(403)
-		c.Ctx.WriteString("Permission denied")
+		c.Redirect("/certificates?error=You aren't Allowed To Download Other Certs", 302)
 		return
 	}
 
@@ -106,8 +106,14 @@ func (c *CertificatesController) Download() {
 
 // @router /certificates [get]
 func (c *CertificatesController) Get() {
+	errorMessage := c.GetString("error")
+	if errorMessage != "" {
+		c.Data["Error"] = errorMessage
+	}
+
 	c.TplName = "certificates.html"
 	c.showCerts()
+
 	cfg := models.EasyRSAConfig{Profile: "default"}
 	_ = cfg.Read("Profile")
 	c.Data["EasyRSA"] = &cfg
@@ -115,7 +121,10 @@ func (c *CertificatesController) Get() {
 	cfg1 := models.OVClientConfig{Profile: "default"}
 	_ = cfg1.Read("Profile")
 	c.Data["SettingsC"] = &cfg1
+
+	c.Render()
 }
+
 
 func (c *CertificatesController) DisplayImage() {
 	imageName := c.Ctx.Input.Param(":imageName")
@@ -156,7 +165,7 @@ func (c *CertificatesController) Post() {
 	logs.Info("Checking if user has certificate. UserID: %d, IsAdmin: %t", c.Userinfo.Id, c.IsAdmin)
 	if !c.IsAdmin && c.userHasCert(int(c.Userinfo.Id)) {
 		c.Ctx.Output.SetStatus(403)
-		c.Ctx.WriteString("You are not allowed to create more than one certificate")
+		c.Redirect("/certificates?error=You are not allowed to create more than one certificate", 302)
 		return
 	}
 
@@ -194,9 +203,9 @@ func (c *CertificatesController) Post() {
 func (c *CertificatesController) Revoke() {
 	name := c.GetString(":key")
 	
-	if !c.IsAdmin && !c.isUserCert(name) {
+	if (!c.IsAdmin && !c.isUserCert(name)) {
 		c.Ctx.Output.SetStatus(403)
-		c.Ctx.WriteString("Permission denied")
+		c.Redirect("/certificates?error=You're not Allowed to Revoke Other User's Cert", 302)
 		return
 	}
 
@@ -206,6 +215,8 @@ func (c *CertificatesController) Revoke() {
 	tfaname := c.GetString(":tfaname")
 	if err := lib.RevokeCertificate(name, serial, tfaname); err != nil {
 		logs.Error(err)
+		flash.Error(err.Error())
+		flash.Store(&c.Controller)
 	} else {
 		flash.Success("Success! Certificate for the name \"" + name + "\" and serial  \"" + serial + "\" has been revoked")
 		flash.Store(&c.Controller)
@@ -216,6 +227,7 @@ func (c *CertificatesController) Revoke() {
 	}
 	c.Redirect(c.URLFor("CertificatesController.Get"), 302)
 }
+
 
 // @router /certificates/restart [get]
 func (c *CertificatesController) Restart() {
@@ -229,7 +241,7 @@ func (c *CertificatesController) Burn() {
 	
 	if !c.IsAdmin && !c.isUserCert(name) {
 		c.Ctx.Output.SetStatus(403)
-		c.Ctx.WriteString("Permission denied")
+		c.Redirect("/certificates?error=You're not Allowed to Delete Other User's Cert", 302)
 		return
 	}
 
@@ -240,8 +252,10 @@ func (c *CertificatesController) Burn() {
 	logs.Info("Controller: Burning certificate with parameters: CN=%s, serial=%s, tfaname=%s", name, serial, tfaname)
 	if err := lib.BurnCertificate(name, serial, tfaname); err != nil {
 		logs.Error(err)
+		flash.Error(err.Error())
+		flash.Store(&c.Controller)
 	} else {
-		flash.Success("Success! Certificate for the name \"" + name + "\" and serial  \"" + serial + "\"  has been removed")
+		flash.Success("Success! Certificate for the name \"" + name + "\" and serial  \"" + serial + "\" has been removed")
 		flash.Store(&c.Controller)
 		
 		// Reset userHasCert flag
@@ -251,6 +265,7 @@ func (c *CertificatesController) Burn() {
 	c.Redirect(c.URLFor("CertificatesController.Get"), 302)
 }
 
+
 // @router /certificates/renew/:key [get]
 func (c *CertificatesController) Renew() {
 	name := c.GetString(":key")
@@ -258,13 +273,13 @@ func (c *CertificatesController) Renew() {
 	cert, err := models.GetCertificateByName(name)
 	if err != nil {
 		c.Ctx.Output.SetStatus(404)
-		c.Ctx.WriteString("Certificate not found")
+		c.Redirect("/certificates?error=You're not Allowed to Renew Other User's Cert", 302)
 		return
 	}
 
 	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
 		c.Ctx.Output.SetStatus(403)
-		c.Ctx.WriteString("Permission denied")
+		c.Redirect("/certificates?error=Permission denied", 302)
 		return
 	}
 
@@ -275,12 +290,16 @@ func (c *CertificatesController) Renew() {
 	tfaname := c.GetString(":tfaname")
 	if err := lib.RenewCertificate(name, localip, serial, tfaname); err != nil {
 		logs.Error(err)
+		flash.Error(err.Error())
+		flash.Store(&c.Controller)
 	} else {
-		flash.Success("Success! Certificate for the name \"" + name + "\"  and IP \"" + localip + "\" and Serial \"" + serial + "\" has been renewed")
+		flash.Success("Success! Certificate for the name \"" + name + "\" and IP \"" + localip + "\" and Serial \"" + serial + "\" has been renewed")
 		flash.Store(&c.Controller)
 	}
-	c.showCerts()
+	c.Redirect(c.URLFor("CertificatesController.Get"), 302)
 }
+
+
 
 func validateCertParams(cert NewCertParams) map[string]map[string]string {
 	valid := validation.Validation{}
