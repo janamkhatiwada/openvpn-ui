@@ -193,15 +193,8 @@ func (c *CertificatesController) Post() {
 // @router /certificates/revoke/:key [get]
 func (c *CertificatesController) Revoke() {
 	name := c.GetString(":key")
-
-	cert, err := models.GetCertificateByName(name)
-	if err != nil {
-		c.Ctx.Output.SetStatus(404)
-		c.Ctx.WriteString("Certificate not found")
-		return
-	}
-
-	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
+	
+	if !c.IsAdmin && !c.isUserCert(name) {
 		c.Ctx.Output.SetStatus(403)
 		c.Ctx.WriteString("Permission denied")
 		return
@@ -216,8 +209,12 @@ func (c *CertificatesController) Revoke() {
 	} else {
 		flash.Success("Success! Certificate for the name \"" + name + "\" and serial  \"" + serial + "\" has been revoked")
 		flash.Store(&c.Controller)
+		
+		// Reset userHasCert flag
+		userID := c.GetUserIDFromCertName(name)
+		lib.ResetUserCertStatus(userID)
 	}
-	c.showCerts()
+	c.Redirect(c.URLFor("CertificatesController.Get"), 302)
 }
 
 // @router /certificates/restart [get]
@@ -229,15 +226,8 @@ func (c *CertificatesController) Restart() {
 // @router /certificates/burn/:key/:serial/:tfaname [get]
 func (c *CertificatesController) Burn() {
 	name := c.GetString(":key")
-
-	cert, err := models.GetCertificateByName(name)
-	if err != nil {
-		c.Ctx.Output.SetStatus(404)
-		c.Ctx.WriteString("Certificate not found")
-		return
-	}
-
-	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
+	
+	if !c.IsAdmin && !c.isUserCert(name) {
 		c.Ctx.Output.SetStatus(403)
 		c.Ctx.WriteString("Permission denied")
 		return
@@ -253,8 +243,12 @@ func (c *CertificatesController) Burn() {
 	} else {
 		flash.Success("Success! Certificate for the name \"" + name + "\" and serial  \"" + serial + "\"  has been removed")
 		flash.Store(&c.Controller)
+		
+		// Reset userHasCert flag
+		userID := c.GetUserIDFromCertName(name)
+		lib.ResetUserCertStatus(userID)
 	}
-	c.showCerts()
+	c.Redirect(c.URLFor("CertificatesController.Get"), 302)
 }
 
 // @router /certificates/renew/:key [get]
@@ -406,4 +400,13 @@ func (c *CertificatesController) userHasCert(userID int) bool {
 	hasCert := lib.UserHasCert(userID)
 	logs.Info("User ID %d has certificate: %t", userID, hasCert)
 	return hasCert
+}
+// Helper function to get user ID from certificate name
+func (c *CertificatesController) GetUserIDFromCertName(certName string) int {
+	cert, err := models.GetCertificateByName(certName)
+	if err != nil {
+		logs.Error("Failed to get certificate by name: %v", err)
+		return 0
+	}
+	return cert.UserId
 }

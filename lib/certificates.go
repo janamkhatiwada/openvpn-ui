@@ -328,6 +328,14 @@ func RevokeCertificate(name string, serial string, tfaname string) error {
 		logs.Error(err)
 		return err
 	}
+
+	// Remove certificate record from database
+	err = removeCertificateRecord(name)
+	if err != nil {
+		logs.Error("Failed to remove certificate record: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -360,6 +368,14 @@ func BurnCertificate(CN string, serial string, tfaname string) error {
 		logs.Error(err)
 		return err
 	}
+
+	// Remove certificate record from database
+	err = removeCertificateRecord(CN)
+	if err != nil {
+		logs.Error("Failed to remove certificate record: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -378,4 +394,20 @@ func RenewCertificate(name string, localip string, serial string, tfaname string
 		return err
 	}
 	return nil
+}
+func removeCertificateRecord(certName string) error {
+	o := orm.NewOrm()
+	cert := models.Certificate{Name: certName}
+	_, err := o.Delete(&cert, "Name")
+	return err
+}
+
+// ResetUserCertStatus resets the userHasCert flag for a given user
+func ResetUserCertStatus(userID int) {
+	hasCert := UserHasCert(userID)
+	if !hasCert {
+		// Reset the userHasCert flag in your application logic or database
+		logs.Info("Resetting userHasCert flag for user ID: %d", userID)
+		// Add your logic here to reset the flag if necessary
+	}
 }
