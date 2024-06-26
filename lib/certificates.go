@@ -7,13 +7,13 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
+	"github.com/beego/beego/v2/client/orm"
 	"github.com/beego/beego/v2/core/logs"
+	"github.com/d3vilh/openvpn-ui/models"
 	"github.com/d3vilh/openvpn-ui/state"
 )
 
-// Cert
-// https://groups.google.com/d/msg/mailing.openssl.users/gMRbePiuwV0/wTASgPhuPzkJ
+// Cert struct represents certificate information
 type Cert struct {
 	EntryType   string
 	Expiration  string
@@ -24,8 +24,10 @@ type Cert struct {
 	Serial      string
 	FileName    string
 	Details     *Details
+	UserId      int // Add UserId field
 }
 
+// Details struct represents detailed certificate information
 type Details struct {
 	Name             string
 	CN               string
@@ -38,6 +40,30 @@ type Details struct {
 	LocalIP          string
 	TFAName          string
 }
+
+// IsUserCert checks if the certificate belongs to the user
+func IsUserCert(certName string, userId int) bool {
+	logs.Info("Checking if certificate belongs to user ID: %d, certificate name: %s", userId, certName)
+	cert, err := models.GetCertificateByName(certName)
+	if err != nil {
+		logs.Error("Error fetching certificate by name: %s, error: %v", certName, err)
+		return false
+	}
+	return cert.UserId == userId
+}
+
+// UserHasCert checks if the user already has a certificate
+func UserHasCert(userId int) bool {
+	logs.Info("Checking if user has a certificate. User ID: %d", userId)
+	certs, err := models.GetCertificatesByUser(userId)
+	if err != nil {
+		logs.Error("Error fetching certificates for user ID: %d, error: %v", userId, err)
+		return false
+	}
+	logs.Info("Number of certificates found for user ID %d: %d", userId, len(certs))
+	return len(certs) > 0
+}
+
 
 func ReadCerts(path string) ([]*Cert, error) {
 	certs := make([]*Cert, 0)
@@ -54,8 +80,7 @@ func ReadCerts(path string) ([]*Cert, error) {
 					line, 6, len(fields))
 		}
 		expT, _ := time.Parse("060102150405Z", fields[1])
-		expTA := time.Now().AddDate(0, 0, 30).After(expT) // If cer will expire in 30 days, raise this flag
-		//logs.Debug("ExpirationT: %v, IsExpiring: %v", expT, expTA) // logging
+		expTA := time.Now().AddDate(0, 0, 30).After(expT) // If cert will expire in 30 days, raise this flag
 		revT, _ := time.Parse("060102150405Z", fields[2])
 		c := &Cert{
 			EntryType:   fields[0],
@@ -115,135 +140,179 @@ func trim(s string) string {
 	return strings.Trim(strings.Trim(s, "\r\n"), "\n")
 }
 
-func CreateCertificate(name string, staticip string, passphrase string, expiredays string, email string, country string, province string, city string, org string, orgunit string, tfaname string, tfaissuer string) error {
-	logs.Info("Lib: Creating certificate with parameters: name=%s, staticip=%s, passphrase=%s, expiredays=%s, email=%s, country=%s, province=%s, city=%s, org=%s, orgunit=%s, tfaname=%s, tfaissuer=%s", name, staticip, passphrase, expiredays, email, country, province, city, org, orgunit, tfaname, tfaissuer)
-	path := state.GlobalCfg.OVConfigPath + "/pki/index.txt"
-	haveip := staticip != ""
-	pass := passphrase != ""
-	//logs.Info("Org set to: %v", org)
-	existsError := errors.New("Error! There is already a valid or invalid certificate for the name \"" + name + "\"")
-	certs, err := ReadCerts(path)
-	if err != nil {
-		logs.Error(err)
-	}
-	exists := false
-	for _, v := range certs {
-		if v.Details.Name == name {
-			exists = true
-			break
-		}
-	}
-	Dump(certs)
-	if !pass { // if no passphrase
-		if !exists && !haveip { // if no exists and no ip
-			logs.Info("No password and no ip")
-			staticip = "dynamic.pool"
-			cmd := exec.Command("/bin/bash", "-c",
-				fmt.Sprintf(
-					"cd /opt/scripts/ && "+
-						"export KEY_NAME=%s &&"+
-						"export TFA_NAME=%s &&"+
-						"export TFA_ISSUER=\"%s\" &&"+
-						"export EASYRSA_CERT_EXPIRE=%s &&"+
-						"export EASYRSA_REQ_EMAIL=%s &&"+
-						"export EASYRSA_REQ_COUNTRY=%s &&"+
-						"export EASYRSA_REQ_PROVINCE=%s &&"+
-						"export EASYRSA_REQ_CITY=%s &&"+
-						"export EASYRSA_REQ_ORG=%s &&"+
-						"export EASYRSA_REQ_OU=%s &&"+
-						"./genclient.sh %s %s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip))
-			cmd.Dir = state.GlobalCfg.OVConfigPath
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				logs.Debug(string(output))
-				logs.Error(err)
-				return err
-			}
-			return nil
-		}
-		if !exists && haveip { // if no exists and have ip
-			logs.Info("No password and but have ip")
-			cmd := exec.Command("/bin/bash", "-c",
-				fmt.Sprintf(
-					"cd /opt/scripts/ && "+
-						"export KEY_NAME=%s &&"+
-						"export TFA_NAME=%s &&"+
-						"export TFA_ISSUER=\"%s\" &&"+
-						"export EASYRSA_CERT_EXPIRE=%s &&"+
-						"export EASYRSA_REQ_EMAIL=%s &&"+
-						"export EASYRSA_REQ_COUNTRY=%s &&"+
-						"export EASYRSA_REQ_PROVINCE=%s &&"+
-						"export EASYRSA_REQ_CITY=%s &&"+
-						"export EASYRSA_REQ_ORG=%s &&"+
-						"export EASYRSA_REQ_OU=%s &&"+
-						"./genclient.sh %s %s &&"+
-						"echo 'ifconfig-push %s 255.255.255.0' > /etc/openvpn/staticclients/%s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip, staticip, name))
-			cmd.Dir = state.GlobalCfg.OVConfigPath
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				logs.Debug(string(output))
-				logs.Error(err)
-				return err
-			}
-			return nil
-		}
-		return existsError
-	} else { // if passphrase
-		if !exists && !haveip { // if no exists and no ip
-			logs.Info("Password and no IP")
-			staticip = "dynamic.pool"
-			cmd := exec.Command("/bin/bash", "-c",
-				fmt.Sprintf(
-					"cd /opt/scripts/ && "+
-						"export KEY_NAME=%s &&"+
-						"export TFA_NAME=%s &&"+
-						"export TFA_ISSUER=\"%s\" &&"+
-						"export EASYRSA_CERT_EXPIRE=%s &&"+
-						"export EASYRSA_REQ_EMAIL=%s &&"+
-						"export EASYRSA_REQ_COUNTRY=%s &&"+
-						"export EASYRSA_REQ_PROVINCE=%s &&"+
-						"export EASYRSA_REQ_CITY=%s &&"+
-						"export EASYRSA_REQ_ORG=%s &&"+
-						"export EASYRSA_REQ_OU=%s &&"+
-						"./genclient.sh %s %s %s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip, passphrase))
-			cmd.Dir = state.GlobalCfg.OVConfigPath
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				logs.Debug(string(output))
-				logs.Error(err)
-				return err
-			}
-			return nil
-		}
-		if !exists && haveip { // if no exists and have ip
-			logs.Info("Password and IP")
-			cmd := exec.Command("/bin/bash", "-c",
-				fmt.Sprintf(
-					"cd /opt/scripts/ && "+
-						"export KEY_NAME=%s &&"+
-						"export TFA_NAME=%s &&"+
-						"export TFA_ISSUER=\"%s\" &&"+
-						"export EASYRSA_CERT_EXPIRE=%s &&"+
-						"export EASYRSA_REQ_EMAIL=%s &&"+
-						"export EASYRSA_REQ_COUNTRY=%s &&"+
-						"export EASYRSA_REQ_PROVINCE=%s &&"+
-						"export EASYRSA_REQ_CITY=%s &&"+
-						"export EASYRSA_REQ_ORG=%s &&"+
-						"export EASYRSA_REQ_OU=%s &&"+
-						"./genclient.sh %s %s %s &&"+
-						"echo 'ifconfig-push %s 255.255.255.0' > /etc/openvpn/staticclients/%s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip, passphrase, staticip, name))
-			cmd.Dir = state.GlobalCfg.OVConfigPath
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				logs.Debug(string(output))
-				logs.Error(err)
-				return err
-			}
-			return nil
-		}
-		return existsError
-	}
+func CreateCertificate(name string, staticip string, passphrase string, expiredays string, email string, country string, province string, city string, org string, orgunit string, tfaname string, tfaissuer string, userId int) error {
+    logs.Info("Lib: Creating certificate with parameters: name=%s, staticip=%s, passphrase=%s, expiredays=%s, email=%s, country=%s, province=%s, city=%s, org=%s, orgunit=%s, tfaname=%s, tfaissuer=%s", name, staticip, passphrase, expiredays, email, country, province, city, org, orgunit, tfaname, tfaissuer)
+    path := state.GlobalCfg.OVConfigPath + "/pki/index.txt"
+    haveip := staticip != ""
+    pass := passphrase != ""
+    existsError := errors.New("Error! There is already a valid or invalid certificate for the name \"" + name + "\"")
+    certs, err := ReadCerts(path)
+    if err != nil {
+        logs.Error(err)
+    }
+    exists := false
+    for _, v := range certs {
+        if v.Details.Name == name {
+            exists = true
+            break
+        }
+    }
+    Dump(certs)
+    if !pass { // if no passphrase
+        if !exists && !haveip { // if no exists and no ip
+            logs.Info("No password and no ip")
+            staticip = "dynamic.pool"
+            cmd := exec.Command("/bin/bash", "-c",
+                fmt.Sprintf(
+                    "cd /opt/scripts/ && "+
+                        "export KEY_NAME=%s &&"+
+                        "export TFA_NAME=%s &&"+
+                        "export TFA_ISSUER=\"%s\" &&"+
+                        "export EASYRSA_CERT_EXPIRE=%s &&"+
+                        "export EASYRSA_REQ_EMAIL=%s &&"+
+                        "export EASYRSA_REQ_COUNTRY=%s &&"+
+                        "export EASYRSA_REQ_PROVINCE=%s &&"+
+                        "export EASYRSA_REQ_CITY=%s &&"+
+                        "export EASYRSA_REQ_ORG=%s &&"+
+                        "export EASYRSA_REQ_OU=%s &&"+
+                        "./genclient.sh %s %s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip))
+            cmd.Dir = state.GlobalCfg.OVConfigPath
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                logs.Debug(string(output))
+                logs.Error(err)
+                return err
+            }
+
+            // Associate certificate with the user
+            cert := &models.Certificate{
+                Name:   name,
+                UserId: userId,
+            }
+            o := orm.NewOrm()
+            if _, err := o.Insert(cert); err != nil {
+                logs.Error(err)
+                return err
+            }
+            return nil
+        }
+        if !exists && haveip { // if no exists and have ip
+            logs.Info("No password and but have ip")
+            cmd := exec.Command("/bin/bash", "-c",
+                fmt.Sprintf(
+                    "cd /opt/scripts/ && "+
+                        "export KEY_NAME=%s &&"+
+                        "export TFA_NAME=%s &&"+
+                        "export TFA_ISSUER=\"%s\" &&"+
+                        "export EASYRSA_CERT_EXPIRE=%s &&"+
+                        "export EASYRSA_REQ_EMAIL=%s &&"+
+                        "export EASYRSA_REQ_COUNTRY=%s &&"+
+                        "export EASYRSA_REQ_PROVINCE=%s &&"+
+                        "export EASYRSA_REQ_CITY=%s &&"+
+                        "export EASYRSA_REQ_ORG=%s &&"+
+                        "export EASYRSA_REQ_OU=%s &&"+
+                        "./genclient.sh %s %s &&"+
+                        "echo 'ifconfig-push %s 255.255.255.0' > /etc/openvpn/staticclients/%s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip, staticip, name))
+            cmd.Dir = state.GlobalCfg.OVConfigPath
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                logs.Debug(string(output))
+                logs.Error(err)
+                return err
+            }
+
+            // Associate certificate with the user
+            cert := &models.Certificate{
+                Name:   name,
+                UserId: userId,
+            }
+            o := orm.NewOrm()
+            if _, err := o.Insert(cert); err != nil {
+                logs.Error(err)
+                return err
+            }
+            return nil
+        }
+        return existsError
+    } else { // if passphrase
+        if !exists && !haveip { // if no exists and no ip
+            logs.Info("Password and no IP")
+            staticip = "dynamic.pool"
+            cmd := exec.Command("/bin/bash", "-c",
+                fmt.Sprintf(
+                    "cd /opt/scripts/ && "+
+                        "export KEY_NAME=%s &&"+
+                        "export TFA_NAME=%s &&"+
+                        "export TFA_ISSUER=\"%s\" &&"+
+                        "export EASYRSA_CERT_EXPIRE=%s &&"+
+                        "export EASYRSA_REQ_EMAIL=%s &&"+
+                        "export EASYRSA_REQ_COUNTRY=%s &&"+
+                        "export EASYRSA_REQ_PROVINCE=%s &&"+
+                        "export EASYRSA_REQ_CITY=%s &&"+
+                        "export EASYRSA_REQ_ORG=%s &&"+
+                        "export EASYRSA_REQ_OU=%s &&"+
+                        "./genclient.sh %s %s %s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip, passphrase))
+            cmd.Dir = state.GlobalCfg.OVConfigPath
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                logs.Debug(string(output))
+                logs.Error(err)
+                return err
+            }
+
+            // Associate certificate with the user
+            cert := &models.Certificate{
+                Name:   name,
+                UserId: userId,
+            }
+            o := orm.NewOrm()
+            if _, err := o.Insert(cert); err != nil {
+                logs.Error(err)
+                return err
+            }
+            return nil
+        }
+        if !exists && haveip { // if no exists and have ip
+            logs.Info("Password and IP")
+            cmd := exec.Command("/bin/bash", "-c",
+                fmt.Sprintf(
+                    "cd /opt/scripts/ && "+
+                        "export KEY_NAME=%s &&"+
+                        "export TFA_NAME=%s &&"+
+                        "export TFA_ISSUER=\"%s\" &&"+
+                        "export EASYRSA_CERT_EXPIRE=%s &&"+
+                        "export EASYRSA_REQ_EMAIL=%s &&"+
+                        "export EASYRSA_REQ_COUNTRY=%s &&"+
+                        "export EASYRSA_REQ_PROVINCE=%s &&"+
+                        "export EASYRSA_REQ_CITY=%s &&"+
+                        "export EASYRSA_REQ_ORG=%s &&"+
+                        "export EASYRSA_REQ_OU=%s &&"+
+                        "./genclient.sh %s %s %s &&"+
+                        "echo 'ifconfig-push %s 255.255.255.0' > /etc/openvpn/staticclients/%s", name, tfaname, tfaissuer, expiredays, email, country, province, city, org, orgunit, name, staticip, passphrase, staticip, name))
+            cmd.Dir = state.GlobalCfg.OVConfigPath
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                logs.Debug(string(output))
+                logs.Error(err)
+                return err
+            }
+
+            // Associate certificate with the user
+            cert := &models.Certificate{
+                Name:   name,
+                UserId: userId,
+            }
+            o := orm.NewOrm()
+            if _, err := o.Insert(cert); err != nil {
+                logs.Error(err)
+                return err
+            }
+            return nil
+        }
+        return existsError
+    }
 }
+
 
 func RevokeCertificate(name string, serial string, tfaname string) error {
 	cmd := exec.Command("/bin/bash", "-c",

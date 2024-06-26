@@ -21,6 +21,18 @@ type User struct {
 	Created       time.Time `orm:"auto_now_add;type(datetime)"`
 	Updated       time.Time `orm:"auto_now;type(datetime)"`
 	Allowed       bool      `orm:"default(false)" form:"Allowed" valid:"Required;"`
+	HasCert       bool      `orm:"-"` // Transient field, not stored in the database
+
+}
+
+// Check if the user has a certificate
+func (u *User) CheckHasCert() (bool, error) {
+	o := orm.NewOrm()
+	count, err := o.QueryTable("certificate").Filter("UserId", u.Id).Count()
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (u *User) Valid(v *validation.Validation) {

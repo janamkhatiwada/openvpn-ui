@@ -1,3 +1,4 @@
+// base.go
 package controllers
 
 import (
@@ -10,6 +11,7 @@ type BaseController struct {
 
 	Userinfo *models.User
 	IsLogin  bool
+	IsAdmin  bool
 }
 
 type NestPreparer interface {
@@ -31,16 +33,25 @@ func (c *BaseController) Prepare() {
 		if err == nil {
 			c.IsLogin = true
 			c.Userinfo = &user
+			c.IsAdmin = user.IsAdmin
+			c.SetSession("IsAdmin", c.IsAdmin)
+			c.SetSession("UserId", user.Id) // Set the UserId in session
 		} else {
 			c.IsLogin = false
+			c.IsAdmin = false
 			c.DelSession("userinfo")
+			c.DelSession("IsAdmin")
+			c.DelSession("UserId")
 		}
 	} else {
 		c.IsLogin = false
+		c.IsAdmin = false
+		c.DelSession("UserId") // Ensure UserId is removed from session if not logged in
 	}
 
 	c.Data["IsLogin"] = c.IsLogin
 	c.Data["Userinfo"] = c.Userinfo
+	c.Data["IsAdmin"] = c.IsAdmin
 
 	if app, ok := c.AppController.(NestPreparer); ok {
 		app.NestPrepare()
@@ -61,13 +72,19 @@ func (c *BaseController) GetLogin() *models.User {
 
 func (c *BaseController) DelLogin() {
 	c.DelSession("userinfo")
+	c.DelSession("IsAdmin")
+	c.DelSession("UserId")
 	c.IsLogin = false
+	c.IsAdmin = false
 	c.Userinfo = nil
 }
 
 func (c *BaseController) SetLogin(user *models.User) {
 	c.SetSession("userinfo", user.Id)
+	c.SetSession("IsAdmin", user.IsAdmin)
+	c.SetSession("UserId", user.Id) // Set the UserId in session
 	c.IsLogin = true
+	c.IsAdmin = user.IsAdmin
 	c.Userinfo = user
 }
 

@@ -37,19 +37,51 @@ type CertificatesController struct {
 	ConfigDir string
 }
 
+// NestPrepare sets up session data
 func (c *CertificatesController) NestPrepare() {
 	if !c.IsLogin {
 		c.Ctx.Redirect(302, c.LoginPath())
 		return
 	}
+
+	// Safely retrieve session values
+	isAdmin, ok := c.GetSession("IsAdmin").(bool)
+	if !ok {
+		c.IsAdmin = false
+	} else {
+		c.IsAdmin = isAdmin
+	}
+
+	userId, ok := c.GetSession("UserId").(int64)
+	if !ok {
+		c.Userinfo.Id = 0 // or handle the error appropriately
+	} else {
+		c.Userinfo.Id = userId
+	}
+
 	c.Data["breadcrumbs"] = &BreadCrumbs{
 		Title: "Certificates",
 	}
 }
 
+
 // @router /certificates/:key [get]
 func (c *CertificatesController) Download() {
 	name := c.GetString(":key")
+
+	cert, err := models.GetCertificateByName(name)
+	if err != nil {
+		c.Ctx.Output.SetStatus(404)
+		c.Ctx.WriteString("Certificate not found")
+		return
+	}
+
+	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
+		c.Ctx.Output.SetStatus(403)
+		c.Ctx.WriteString("Permission denied")
+		return
+	}
+
 	filename := fmt.Sprintf("%s.ovpn", name)
 
 	c.Ctx.Output.Header("Content-Type", "application/octet-stream")
@@ -89,11 +121,8 @@ func (c *CertificatesController) DisplayImage() {
 	imageName := c.Ctx.Input.Param(":imageName")
 	logs.Info("Image name: %s", imageName)
 	imagePath := filepath.Join(state.GlobalCfg.OVConfigPath, "clients/", imageName+".png")
-	// destPath := filepath.Join(state.GlobalCfg.OVConfigPath, "clients", name+".ovpn")
-	//imagePath := "./openvpn/clients/" + imageName + ".png"
 	logs.Info("Image path: %s", imagePath)
 
-	// Check if the image file exists
 	data, err := os.ReadFile(imagePath)
 	if err != nil {
 		c.Ctx.Output.SetStatus(404)
@@ -102,10 +131,7 @@ func (c *CertificatesController) DisplayImage() {
 		return
 	}
 
-	// Set the content type header to indicate it's an image
 	c.Ctx.Output.Header("Content-Type", "image/png")
-
-	// Write the image data directly to the response body
 	c.Ctx.Output.Body(data)
 }
 
@@ -127,6 +153,13 @@ func (c *CertificatesController) showCerts() {
 
 // @router /certificates [post]
 func (c *CertificatesController) Post() {
+	logs.Info("Checking if user has certificate. UserID: %d, IsAdmin: %t", c.Userinfo.Id, c.IsAdmin)
+	if !c.IsAdmin && c.userHasCert(int(c.Userinfo.Id)) {
+		c.Ctx.Output.SetStatus(403)
+		c.Ctx.WriteString("You are not allowed to create more than one certificate")
+		return
+	}
+
 	c.TplName = "certificates.html"
 	flash := web.NewFlash()
 
@@ -140,7 +173,7 @@ func (c *CertificatesController) Post() {
 			c.Data["validation"] = vMap
 		} else {
 			logs.Info("Controller: Creating certificate with parameters: Name=%s, Staticip=%s, Passphrase=%s, ExpireDays=%s, Email=%s, Country=%s, Province=%s, City=%s, Org=%s, OrgUnit=%s, TFAName=%s, TFAIssuer=%s", cParams.Name, cParams.Staticip, cParams.Passphrase, cParams.ExpireDays, cParams.Email, cParams.Country, cParams.Province, strconv.Quote(cParams.City), strconv.Quote(cParams.Org), strconv.Quote(cParams.OrgUnit), cParams.TFAName, cParams.TFAIssuer)
-			if err := lib.CreateCertificate(cParams.Name, cParams.Staticip, cParams.Passphrase, cParams.ExpireDays, cParams.Email, cParams.Country, cParams.Province, strconv.Quote(cParams.City), strconv.Quote(cParams.Org), strconv.Quote(cParams.OrgUnit), cParams.TFAName, cParams.TFAIssuer); err != nil {
+			if err := lib.CreateCertificate(cParams.Name, cParams.Staticip, cParams.Passphrase, cParams.ExpireDays, cParams.Email, cParams.Country, cParams.Province, strconv.Quote(cParams.City), strconv.Quote(cParams.Org), strconv.Quote(cParams.OrgUnit), cParams.TFAName, cParams.TFAIssuer, int(c.Userinfo.Id)); err != nil {
 				logs.Error(err)
 				flash.Error(err.Error())
 				flash.Store(&c.Controller)
@@ -159,15 +192,27 @@ func (c *CertificatesController) Post() {
 
 // @router /certificates/revoke/:key [get]
 func (c *CertificatesController) Revoke() {
+	name := c.GetString(":key")
+
+	cert, err := models.GetCertificateByName(name)
+	if err != nil {
+		c.Ctx.Output.SetStatus(404)
+		c.Ctx.WriteString("Certificate not found")
+		return
+	}
+
+	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
+		c.Ctx.Output.SetStatus(403)
+		c.Ctx.WriteString("Permission denied")
+		return
+	}
+
 	c.TplName = "certificates.html"
 	flash := web.NewFlash()
-	name := c.GetString(":key")
 	serial := c.GetString(":serial")
 	tfaname := c.GetString(":tfaname")
 	if err := lib.RevokeCertificate(name, serial, tfaname); err != nil {
 		logs.Error(err)
-		//flash.Error(err.Error())
-		//flash.Store(&c.Controller)
 	} else {
 		flash.Success("Success! Certificate for the name \"" + name + "\" and serial  \"" + serial + "\" has been revoked")
 		flash.Store(&c.Controller)
@@ -179,40 +224,63 @@ func (c *CertificatesController) Revoke() {
 func (c *CertificatesController) Restart() {
 	lib.Restart()
 	c.Redirect(c.URLFor("CertificatesController.Get"), 302)
-	// return
 }
 
 // @router /certificates/burn/:key/:serial/:tfaname [get]
 func (c *CertificatesController) Burn() {
+	name := c.GetString(":key")
+
+	cert, err := models.GetCertificateByName(name)
+	if err != nil {
+		c.Ctx.Output.SetStatus(404)
+		c.Ctx.WriteString("Certificate not found")
+		return
+	}
+
+	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
+		c.Ctx.Output.SetStatus(403)
+		c.Ctx.WriteString("Permission denied")
+		return
+	}
+
 	c.TplName = "certificates.html"
 	flash := web.NewFlash()
-	CN := c.GetString(":key")
 	serial := c.GetString(":serial")
 	tfaname := c.GetString(":tfaname")
-	logs.Info("Controller: Burning certificate with parameters: CN=%s, serial=%s, tfaname=%s", CN, serial, tfaname)
-	if err := lib.BurnCertificate(CN, serial, tfaname); err != nil {
+	logs.Info("Controller: Burning certificate with parameters: CN=%s, serial=%s, tfaname=%s", name, serial, tfaname)
+	if err := lib.BurnCertificate(name, serial, tfaname); err != nil {
 		logs.Error(err)
-		//flash.Error(err.Error())
-		//flash.Store(&c.Controller)
 	} else {
-		flash.Success("Success! Certificate for the name \"" + CN + "\" and serial  \"" + serial + "\"  has been removed")
+		flash.Success("Success! Certificate for the name \"" + name + "\" and serial  \"" + serial + "\"  has been removed")
 		flash.Store(&c.Controller)
 	}
 	c.showCerts()
 }
 
-// @router /certificates/revoke/:key [get]
+// @router /certificates/renew/:key [get]
 func (c *CertificatesController) Renew() {
+	name := c.GetString(":key")
+
+	cert, err := models.GetCertificateByName(name)
+	if err != nil {
+		c.Ctx.Output.SetStatus(404)
+		c.Ctx.WriteString("Certificate not found")
+		return
+	}
+
+	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
+		c.Ctx.Output.SetStatus(403)
+		c.Ctx.WriteString("Permission denied")
+		return
+	}
+
 	c.TplName = "certificates.html"
 	flash := web.NewFlash()
-	name := c.GetString(":key")
 	localip := c.GetString(":localip")
 	serial := c.GetString(":serial")
 	tfaname := c.GetString(":tfaname")
 	if err := lib.RenewCertificate(name, localip, serial, tfaname); err != nil {
 		logs.Error(err)
-		//flash.Error(err.Error())
-		//flash.Store(&c.Controller)
 	} else {
 		flash.Success("Success! Certificate for the name \"" + name + "\"  and IP \"" + localip + "\" and Serial \"" + serial + "\" has been renewed")
 		flash.Store(&c.Controller)
@@ -251,9 +319,9 @@ func (c *CertificatesController) saveClientConfig(keysPath string, name string) 
 	cfg.PersistKey = ovClientConfig.PersistKey
 	cfg.RemoteCertTLS = ovClientConfig.RemoteCertTLS
 	cfg.RedirectGateway = ovClientConfig.RedirectGateway
-	cfg.Proto = ovClientConfig.Proto   // this will be set from client instead of server config
-	cfg.Auth = ovClientConfig.Auth     // this will be set from client instead of server config
-	cfg.Cipher = ovClientConfig.Cipher // this will be set from client instead of server config
+	cfg.Proto = ovClientConfig.Proto
+	cfg.Auth = ovClientConfig.Auth
+	cfg.Cipher = ovClientConfig.Cipher
 	cfg.Device = ovClientConfig.Device
 	cfg.AuthNoCache = ovClientConfig.AuthNoCache
 	cfg.TlsClient = ovClientConfig.TlsClient
@@ -290,9 +358,6 @@ func (c *CertificatesController) saveClientConfig(keysPath string, name string) 
 	serverConfig := models.OVConfig{Profile: "default"}
 	_ = serverConfig.Read("Profile")
 	cfg.Port = serverConfig.Port
-	// cfg.Proto = serverConfig.Proto   //Now getting it from client config
-	// cfg.Auth = serverConfig.Auth     //Now getting it from client config
-	// cfg.Cipher = serverConfig.Cipher //Now getting it from client config
 
 	destPath := filepath.Join(state.GlobalCfg.OVConfigPath, "clients", name+".ovpn")
 	if err := SaveToFile(filepath.Join(c.ConfigDir, "openvpn-client-config.tpl"), cfg, destPath); err != nil {
@@ -329,4 +394,16 @@ func SaveToFile(tplPath string, c clientconfig.Config, destPath string) error {
 	}
 
 	return os.WriteFile(destPath, []byte(str), 0644)
+}
+
+// isUserCert checks if the certificate belongs to the logged-in user
+func (c *CertificatesController) isUserCert(certName string) bool {
+	return lib.IsUserCert(certName, int(c.Userinfo.Id))
+}
+
+func (c *CertificatesController) userHasCert(userID int) bool {
+	logs.Info("Checking if user has a certificate. User ID: %d", userID)
+	hasCert := lib.UserHasCert(userID)
+	logs.Info("User ID %d has certificate: %t", userID, hasCert)
+	return hasCert
 }

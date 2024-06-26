@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/beego/beego/v2/client/orm"
 	"github.com/beego/beego/v2/core/logs"
@@ -14,35 +15,46 @@ import (
 	"gopkg.in/hlandau/passlib.v1"
 )
 
+type Certificate struct {
+	Id     int
+	Name   string
+	UserId int
+}
+
+var registerOnce sync.Once
+
 func InitDB() {
-	err := orm.RegisterDriver("sqlite3", orm.DRSqlite)
-	if err != nil {
-		panic(err)
-	}
-	dbPath, err := web.AppConfig.String("dbPath")
-	if err != nil {
-		panic(err)
-	}
-	dbSource := "file:" + dbPath
+	registerOnce.Do(func() {
+		err := orm.RegisterDriver("sqlite3", orm.DRSqlite)
+		if err != nil {
+			panic(err)
+		}
+		dbPath, err := web.AppConfig.String("dbPath")
+		if err != nil {
+			panic(err)
+		}
+		dbSource := "file:" + dbPath
 
-	err = orm.RegisterDataBase("default", "sqlite3", dbSource)
-	if err != nil {
-		panic(err)
-	}
-	orm.Debug = true
-	orm.RegisterModel(
-		new(User),
-		new(Settings),
-		new(OVConfig),
-		new(OVClientConfig),
-		new(EasyRSAConfig),
-	)
+		err = orm.RegisterDataBase("default", "sqlite3", dbSource)
+		if err != nil {
+			panic(err)
+		}
+		orm.Debug = true
+		orm.RegisterModel(
+			new(User),
+			new(Settings),
+			new(OVConfig),
+			new(OVClientConfig),
+			new(EasyRSAConfig),
+			new(Certificate),
+		)
 
-	err = orm.RunSyncdb("default", false, true)
-	if err != nil {
-		logs.Error(err)
-		return
-	}
+		err = orm.RunSyncdb("default", false, true)
+		if err != nil {
+			logs.Error(err)
+			return
+		}
+	})
 }
 
 func CreateDefaultUsers() {
@@ -93,8 +105,6 @@ func CreateDefaultSettings() (*Settings, error) {
 		MINetwork:    miNetwork,
 		OVConfigPath: ovConfigPath,
 		EasyRSAPath:  easyRSAPath,
-		//	ServerAddress:     serverAddress,
-		//	OpenVpnServerPort: serverPort,
 	}
 
 	o := orm.NewOrm()
@@ -114,7 +124,7 @@ func CreateDefaultOVConfig(configDir string, ovConfigPath string, address string
 	c := OVConfig{
 		Profile: "default",
 		Config: config.Config{
-			FuncMode:                 0, // 0 = standard authentication (cert, cert + password), 1 = 2FA authentication (cert + OTP)
+			FuncMode:                 0,
 			Management:               fmt.Sprintf("%s %s", address, network),
 			ScriptSecurity:           "",
 			UserPassVerify:           "",
@@ -176,7 +186,7 @@ func CreateDefaultOVClientConfig(configDir string, ovConfigPath string, address 
 	c := OVClientConfig{
 		Profile: "default",
 		Config: clientconfig.Config{
-			FuncMode:          0, // 0 = standard authentication (cert, cert + password), 1 = 2FA authentication (cert + OTP)
+			FuncMode:          0,
 			Device:            "tun",
 			Port:              1194,
 			Proto:             "udp",
@@ -194,8 +204,8 @@ func CreateDefaultOVClientConfig(configDir string, ovConfigPath string, address 
 			AuthNoCache:       "auth-nocache",
 			TlsClient:         "tls-client",
 			Verbose:           "3",
-			AuthUserPass:      "",                 // "auth-user-pass" when 2fa
-			TFAIssuer:         "MFA%20OpenVPN-UI", // 2FA issuer
+			AuthUserPass:      "",
+			TFAIssuer:         "MFA%20OpenVPN-UI",
 			CustomConfOne:     "#Custom Option One",
 			CustomConfTwo:     "#Custom Option Two",
 			CustomConfThree:   "#Custom Option Three",
@@ -254,4 +264,36 @@ func CreateDefaultEasyRSAConfig(configDir string, easyRSAPath string, address st
 	} else {
 		logs.Error(err)
 	}
+}
+
+func GetCertificateByName(name string) (*Certificate, error) {
+	o := orm.NewOrm()
+	cert := Certificate{Name: name}
+	err := o.Read(&cert, "Name")
+	if err != nil {
+		return nil, err
+	}
+	return &cert, nil
+}
+
+func GetCertificatesByUser(userId int) ([]Certificate, error) {
+	logs.Info("Fetching certificates for user ID: %d", userId)
+	o := orm.NewOrm()
+	var certs []Certificate
+	num, err := o.QueryTable("certificate").Filter("UserId", userId).All(&certs)
+	if err != nil {
+		logs.Error("Error fetching certificates for user ID: %d, error: %v", userId, err)
+		return nil, err
+	}
+	logs.Info("Number of certificates found for user ID %d: %d", userId, num)
+	return certs, nil
+}
+
+
+func UserHasCert(userId int) (bool, error) {
+	certs, err := GetCertificatesByUser(userId)
+	if err != nil {
+		return false, err
+	}
+	return len(certs) > 0, nil
 }
