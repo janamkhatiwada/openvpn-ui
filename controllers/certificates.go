@@ -78,7 +78,7 @@ func (c *CertificatesController) Download() {
 
 	if !c.IsAdmin && int64(cert.UserId) != c.Userinfo.Id {
 		c.Ctx.Output.SetStatus(403)
-		c.Redirect("/certificates?error=You aren't Allowed To Download Other Certs", 302)
+		c.Redirect("/certificates?error=You aren't Allowed To Download Other User's Certs", 302)
 		return
 	}
 
@@ -205,7 +205,7 @@ func (c *CertificatesController) Revoke() {
 	
 	if (!c.IsAdmin && !c.isUserCert(name)) {
 		c.Ctx.Output.SetStatus(403)
-		c.Redirect("/certificates?error=You're not Allowed to Revoke Other User's Cert", 302)
+		c.Redirect("/certificates?error=You're not Allowed to Revoke Certifcate", 302)
 		return
 	}
 
@@ -241,7 +241,7 @@ func (c *CertificatesController) Burn() {
 	
 	if !c.IsAdmin && !c.isUserCert(name) {
 		c.Ctx.Output.SetStatus(403)
-		c.Redirect("/certificates?error=You're not Allowed to Delete Other User's Cert", 302)
+		c.Redirect("/certificates?error=You're not Allowed to Delete Certificate", 302)
 		return
 	}
 
