@@ -4,8 +4,7 @@ set -e  # Exit immediately if a command exits with a non-zero status. Set -x opt
 
 # Define the machine architecture
 # PLATFORM="linux/amd64" # arm64v8 = "linux/arm64/v8", arm32v5 - "linux/arm/v5", arm32v7 - "linux/arm/v7", amd64 - "linux/amd64"
-#ARCH=$(uname -m)
-ARCH=jj
+ARCH=$(uname -m)
 case $ARCH in
   armv6*)
     PLATFORM="linux/arm/v5"
