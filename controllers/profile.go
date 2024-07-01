@@ -345,6 +345,10 @@ func (c *ProfileController) EditUser() {
 		return
 	}
 
+	if c.Userinfo.IsAdmin {
+		user.IsAdmin = c.GetString("IsAdmin") == "on"
+	}
+
 	if _, err := o.Update(&user); err != nil {
 		logs.Error("Failed to update user \""+user.Name+"\" profile:", err)
 		flash.Error("Failed to update user \"" + user.Name + "\" profile")

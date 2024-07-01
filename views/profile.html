@@ -237,6 +237,12 @@
                     {{ else }}
                     <i class="fa fa-fw fa-minus-circle" style="color: #dd4b39; font-size: 17px;" ></i>
                     {{ end }}
+                    {{ if not .IsAdmin }} <!-- Only show the checkbox if the user is not an admin -->
+                    <div class="custom-control custom-checkbox form-group">
+                      <input class="custom-control-input" type="checkbox" id="makeadmin{{.Id}}" name="IsAdmin" {{ if .IsAdmin }} checked{{ end }}>
+                      <label for="makeadmin{{.Id}}" class="custom-control-label">Make Admin</label>
+                    </div>
+                    {{ end }}
                   </td>
                     <td>
                       {{ .Login }}
