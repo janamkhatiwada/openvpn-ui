@@ -21,8 +21,8 @@ type NewUser struct {
 	NewEmail      string `orm:"size(64)" form:"NewEmail" valid:"Required;Email"`
 	NewPassword   string `orm:"size(32)" form:"NewPassword" valid:"Required;MinSize(6)"`
 	NewRepassword string `orm:"-" form:"NewRepassword" valid:"Required"`
-	NewPIN        string `orm:"size(30)" form:"NewPIN" valid:"Required;MinSize(4);MaxSize(30)"`
-	NewRePIN      string `orm:"size(30)" form:"NewRePIN" valid:"Required;MinSize(4);MaxSize(30)"`
+	NewPIN        string `orm:"size(30)" form:"NewPIN"`
+	NewRePIN      string `orm:"size(30)" form:"NewRePIN"`
 }
 
 type ProfileController struct {
@@ -94,10 +94,12 @@ func (c *ProfileController) Post() {
 		fieldsToUpdate = append(fieldsToUpdate, "Password")
 	}
 
-	if user.PIN != "" && user.PIN == c.GetString("RePIN") {
-		c.Userinfo.PIN = user.PIN
+	pin := c.GetString("PIN")
+	repin := c.GetString("RePIN")
+	if pin != "" && pin == repin {
+		c.Userinfo.PIN = pin
 		fieldsToUpdate = append(fieldsToUpdate, "PIN")
-	} else if user.PIN != "" {
+	} else if pin != "" && pin != repin {
 		flash.Error("PINs do not match")
 		flash.Store(&c.Controller)
 		return
@@ -127,15 +129,27 @@ func (c *ProfileController) Post() {
 	c.List()
 }
 
-
 func validateUser(user models.User) map[string]map[string]string {
 	valid := validation.Validation{}
-	b, err := valid.Valid(&user)
-	if err != nil {
-		logs.Error(err)
-		return nil
+	
+	// Validate other fields
+	if user.Password != "" {
+		valid.MinSize(user.Password, 6, "Password")
 	}
-	if !b {
+	if user.Email != "" {
+		valid.Email(user.Email, "Email")
+	}
+	if user.Name != "" {
+		valid.Required(user.Name, "Name")
+	}
+	
+	// Validate PIN only if it is not empty
+	if user.PIN != "" {
+		valid.MinSize(user.PIN, 4, "PIN")
+		valid.MaxSize(user.PIN, 30, "PIN")
+	}
+
+	if valid.HasErrors() {
 		return lib.CreateValidationMap(valid)
 	}
 	return nil

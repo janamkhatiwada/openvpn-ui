@@ -79,23 +79,23 @@
             </div>
 
             <div class="form-group {{if field_error_exist .validation "PIN" }}has-error{{end}}">
-              <label class="col-form-label" for="pin">PIN</label>
+              <label class="col-form-label" for="pin">PIN <span class="text-muted">(optional)</span></label>
               <div class="input-group mb-3">
                 <div class="input-group-prepend">
                   <span class="input-group-text"><i class="fas fa-key"></i></span>
                 </div>
-                <input type="password" class="form-control" id="pin" name="PIN" placeholder="Enter PIN">
+                <input type="password" class="form-control" id="pin" name="PIN" placeholder="Enter PIN (optional)">
                 <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "PIN" }}</span>
               </div>
             </div>
 
             <div class="form-group {{if field_error_exist .validation "RePIN" }}has-error{{end}}">
-              <label class="col-form-label" for="repin">Re-enter PIN</label>
+              <label class="col-form-label" for="repin">Re-enter PIN <span class="text-muted">(optional)</span></label>
               <div class="input-group mb-3">
                 <div class="input-group-prepend">
                   <span class="input-group-text"><i class="fas fa-key"></i></span>
                 </div>
-                <input type="password" class="form-control" id="repin" name="RePIN" placeholder="Re-enter PIN">
+                <input type="password" class="form-control" id="repin" name="RePIN" placeholder="Re-enter PIN (optional)">
                 <span class="text-muted"> {{template "common/fvalid.html" field_error_message .validation "RePIN" }}</span>
               </div>
             </div>
