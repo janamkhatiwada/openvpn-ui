@@ -22,6 +22,7 @@ var (
     oauthConf        *oauth2.Config
     oauthStateString = "random" // use a random string for security purposes
     allowedDomains   []string
+    allowedEmails    []string
 )
 
 func init() {
@@ -29,6 +30,7 @@ func init() {
     clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
     redirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
     allowedDomainsStr := os.Getenv("ALLOWED_DOMAINS")
+    allowedEmailsStr := os.Getenv("ALLOWED_EMAILS")
 
     if clientID == "" {
         log.Println("Environment variable GOOGLE_CLIENT_ID not set")
@@ -42,6 +44,7 @@ func init() {
     if allowedDomainsStr == "" {
         log.Println("Environment variable ALLOWED_DOMAINS not set")
     }
+
     oauthConf = &oauth2.Config{
         ClientID:     clientID,
         ClientSecret: clientSecret,
@@ -55,6 +58,27 @@ func init() {
     } else {
         allowedDomains = []string{}
     }
+
+    if allowedEmailsStr != "" {
+        allowedEmails = strings.Split(allowedEmailsStr, ",")
+        for _, email := range allowedEmails {
+            domain := strings.Split(email, "@")[1]
+            if !isDomainAllowed(domain) {
+                log.Fatalf("Allowed email %s is not in the allowed domains", email)
+            }
+        }
+    } else {
+        allowedEmails = []string{}
+    }
+}
+
+func isDomainAllowed(domain string) bool {
+    for _, allowedDomain := range allowedDomains {
+        if domain == allowedDomain {
+            return true
+        }
+    }
+    return false
 }
 
 type LoginController struct {
@@ -147,7 +171,6 @@ func (c *LoginController) VerifyPin() {
 	c.Redirect(c.URLFor("MainController.Get"), 303)
 }
 
-
 // Method to log out
 func (c *LoginController) Logout() {
 	c.DelLogin()
@@ -195,15 +218,21 @@ func (c *LoginController) GoogleCallback() {
 	logs.Info("User Info: %+v", userinfo)
 
 	emailDomain := strings.Split(userinfo.Email, "@")[1]
-	allowed := false
-	for _, domain := range allowedDomains {
-		if emailDomain == domain {
-			allowed = true
-			break
+	allowedDomain := isDomainAllowed(emailDomain)
+
+	allowedEmail := false
+	if len(allowedEmails) == 0 {
+		allowedEmail = true
+	} else {
+		for _, email := range allowedEmails {
+			if userinfo.Email == email {
+				allowedEmail = true
+				break
+			}
 		}
 	}
 
-	if !allowed {
+	if !allowedDomain || !allowedEmail {
 		c.Data["error"] = "Your Email is not allowed to login"
 		c.TplName = "login.html"
 		c.Render()
